@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Información del Lote</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #f4f4f4; 
+            margin: 0; padding: 20px; 
+            text-align: center;
+        }
+        .tarjeta {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        h1 { color: #2c3e50; margin-bottom: 5px; }
+        .etiqueta { font-size: 14px; color: #7f8c8d; text-transform: uppercase; margin-top: 20px; }
+        .dato { font-size: 24px; font-weight: bold; color: #2c3e50; }
+        
+        /* Colores dinámicos */
+        .estado-disponible { color: #27ae60; }
+        .estado-vendido { color: #c0392b; }
+        
+        #loading { color: #7f8c8d; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <div class="tarjeta">
+        <h1 id="tituloLote">Cargando...</h1>
+        
+        <div id="contenido" style="display:none;">
+            <div class="etiqueta">Estado</div>
+            <div id="datoEstado" class="dato">---</div>
+
+            <div class="etiqueta">Precio</div>
+            <div id="datoPrecio" class="dato">---</div>
+            
+            <div class="etiqueta">Área / Info</div>
+            <div class="dato" style="font-size: 16px;">Contáctanos para más detalles</div>
+        </div>
+
+        <p id="loading">Conectando con base de datos...</p>
+    </div>
+
+    <script>
+        // 1. TU ENLACE DE GOOGLE SHEETS
+        const sheetID = '2PACX-1vT1ZxnIeqCKoH5E0MCWTw4M-q3qUGxWpfrHq66msH6CsHPPSgKl27PP4NlTj7zkvQOhpNwheaJwHfLK';
+        const urlGoogle = `https://docs.google.com/spreadsheets/d/e/${sheetID}/pub?output=csv`;
+        
+        // Usamos un proxy para evitar bloqueos en tu computadora local
+        const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(urlGoogle);
+
+        // 2. OBTENER QUÉ LOTE NOS PIDIERON (de la URL)
+        const params = new URLSearchParams(window.location.search);
+        const loteBuscado = params.get('lote'); // Ejemplo: Lote_1
+
+        if (!loteBuscado) {
+            document.getElementById('tituloLote').innerText = "Error: No se especificó lote";
+            document.getElementById('loading').style.display = 'none';
+        } else {
+            document.getElementById('tituloLote').innerText = loteBuscado.replace('_', ' ');
+            cargarDatos(loteBuscado);
+        }
+
+        function cargarDatos(idBusqueda) {
+            fetch(proxyUrl)
+                .then(response => response.json())
+                .then(data => {
+                    const csvText = data.contents;
+                    const filas = csvText.split('\n');
+                    let encontrado = false;
+
+                    for (let i = 0; i < filas.length; i++) {
+                        const columnas = filas[i].split(',');
+                        const idActual = columnas[0].trim();
+
+                        if (idActual === idBusqueda) {
+                            // ¡ENCONTRADO!
+                            const estado = columnas[1].trim();
+                            const precio = columnas[2].trim();
+
+                            // Rellenar HTML
+                            document.getElementById('datoEstado').innerText = estado;
+                            document.getElementById('datoPrecio').innerText = precio;
+                            
+                            // Color según estado
+                            const elEstado = document.getElementById('datoEstado');
+                            if(estado.toLowerCase().includes('vendido')) {
+                                elEstado.className = 'dato estado-vendido';
+                            } else {
+                                elEstado.className = 'dato estado-disponible';
+                            }
+
+                            encontrado = true;
+                            break;
+                        }
+                    }
+
+                    document.getElementById('loading').style.display = 'none';
+                    
+                    if (encontrado) {
+                        document.getElementById('contenido').style.display = 'block';
+                    } else {
+                        document.getElementById('tituloLote').innerText = "Lote no encontrado en Excel";
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('loading').innerText = "Error de conexión";
+                    console.error(err);
+                });
+        }
+    </script>
+</body>
+</html>
