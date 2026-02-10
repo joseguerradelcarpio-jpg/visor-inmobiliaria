@@ -6,121 +6,126 @@
     <title>Ficha Técnica</title>
     <style>
         body { 
-            font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; 
+            font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; 
             display: flex; flex-direction: column; justify-content: center; align-items: center; 
-            height: 100vh; background-color: #f4f4f4;
+            height: 100vh; background-color: #f8f9fa;
         }
         .card {
-            background: white; width: 90%; max-width: 350px;
-            padding: 30px; border-radius: 15px; text-align: center;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            background: white; width: 90%; max-width: 380px;
+            padding: 35px 20px; border-radius: 20px; text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            transition: transform 0.3s ease;
         }
-        h2 { margin: 0 0 15px 0; color: #333; font-size: 24px; text-transform: uppercase; }
-        .price { font-size: 32px; color: #2c3e50; font-weight: 800; margin: 15px 0; }
-        .status { 
-            padding: 8px 15px; border-radius: 20px; font-weight: bold; 
-            text-transform: uppercase; display: inline-block; font-size: 14px;
-        }
-        .disponible { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-        .vendido { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+        .card:hover { transform: translateY(-5px); }
         
-        /* Ocultamos el debug por defecto, solo sale si hay error grave */
-        .debug-area { background: #222; color: lime; padding: 10px; font-size: 10px; text-align: left; margin-top: 20px; width: 90%; display:none; white-space: pre-wrap; word-break: break-all; }
+        h2 { margin: 0 0 10px 0; color: #222; font-size: 26px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .price { 
+            font-size: 38px; color: #2c3e50; font-weight: 800; margin: 20px 0; 
+            text-shadow: 1px 1px 0px rgba(0,0,0,0.1);
+        }
+        
+        .status { 
+            padding: 8px 20px; border-radius: 50px; font-weight: bold; 
+            text-transform: uppercase; display: inline-block; font-size: 14px;
+            letter-spacing: 0.5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .disponible { background: #e8f5e9; color: #1b5e20; border: 2px solid #c8e6c9; }
+        .vendido { background: #ffebee; color: #b71c1c; border: 2px solid #ffcdd2; }
+        
+        #loading { font-size: 14px; color: #666; font-style: italic; margin-top: 10px; }
+        .debug-area { background: #222; color: #0f0; padding: 15px; font-size: 11px; text-align: left; margin-top: 20px; width: 90%; display:none; border-radius: 8px; overflow-x: auto; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2 id="loteTitle">Consultando...</h2>
+        <h2 id="loteTitle">...</h2>
         
         <div id="dataContainer" style="display:none;">
             <div id="statusDisplay" class="status">---</div>
             <div class="price" id="priceDisplay">---</div>
         </div>
         
-        <p id="msg" style="color:#666;">Conectando al servidor...</p>
+        <div id="loading">
+            <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; margin-right: 5px;"><style>.spinner{transform-origin:center;animation:spinner_AtaB .75s infinite linear}@keyframes spinner_AtaB{100%{transform:rotate(360deg)}}</style><g class="spinner"><circle cx="12" cy="12" r="9.5" fill="none" stroke-width="3" stroke="#888" stroke-linecap="round"><animate attributeName="stroke-dasharray" calcMode="spline" dur="1.5s" values="0 150;42 150;42 150;42 150" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite"/><animate attributeName="stroke-dashoffset" calcMode="spline" dur="1.5s" values="0;-16;-59;-59" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite"/></circle></g></svg>
+            Consultando Drive...
+        </div>
     </div>
 
     <div id="debug" class="debug-area"></div>
 
     <script>
-        // --- ID DE TU EXCEL ---
+        // === CONFIGURACIÓN ===
         const SHEET_ID = '2PACX-1vT1ZxnIeqCKoH5E0MCWTw4M-q3qUGxWpfrHq66msH6CsHPPSgKl27PP4NlTj7zkvQOhpNwheaJwHfLK';
 
-        // 1. Obtener ID de la URL
+        // === INICIO ===
         const params = new URLSearchParams(window.location.search);
         const targetId = params.get('lote') || params.get('id');
 
         if (!targetId) {
-            verError("Falta el ID en el enlace (?lote=Lote_1)");
+            verError("Falta ID (?lote=Lote_1)");
         } else {
             document.getElementById('loteTitle').innerText = targetId.replace(/_/g, ' ');
-            descargarDatos(targetId);
+            iniciarDescarga(targetId);
         }
 
-        function descargarDatos(idBuscado) {
+        function iniciarDescarga(idBuscado) {
             const googleUrl = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
-            // Timestamp para evitar caché
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(googleUrl)}&t=${new Date().getTime()}`;
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(googleUrl)}&t=${Date.now()}`;
 
             fetch(proxyUrl)
                 .then(r => r.json())
                 .then(data => {
-                    let contenido = data.contents;
-
-                    // --- DECODIFICADOR DE EMERGENCIA ---
-                    // Si el contenido viene encriptado en base64 (tu error anterior), lo abrimos aquí
-                    if (contenido.includes("base64,")) {
+                    let raw = data.contents;
+                    // Decodificar Base64 si Google lo manda encriptado
+                    if (raw.includes("base64,")) {
                         try {
-                            const base64Part = contenido.split("base64,")[1];
-                            // Decodificar y procesar caracteres especiales (tildes, ñ, simbolos de moneda)
-                            contenido = decodeURIComponent(escape(window.atob(base64Part)));
-                            console.log("⚠️ Contenido base64 detectado y decodificado.");
-                        } catch (e) {
-                            console.log("Error al decodificar base64: " + e);
-                        }
+                            raw = decodeURIComponent(escape(window.atob(raw.split("base64,")[1])));
+                        } catch (e) { console.error("Error base64", e); }
                     }
-                    // -----------------------------------
-
-                    procesarCSV(contenido, idBuscado);
+                    procesarDatos(raw, idBuscado);
                 })
-                .catch(err => verError("Error de Red: " + err));
+                .catch(err => verError("Error de Red. Revisa tu conexión."));
         }
 
-        function procesarCSV(textoCSV, idBuscado) {
-            const filas = textoCSV.split('\n');
+        function procesarDatos(csvText, idBuscado) {
+            const filas = csvText.split('\n');
             let encontrado = false;
-            let debugLog = "Analizando:\n";
+            let debugLog = "Buscando: " + idBuscado + "\n";
 
             for (let i = 0; i < filas.length; i++) {
-                const columnas = filas[i].split(',');
+                // EXPLICACIÓN DEL FIX:
+                // Esta expresión regular "inteligente" separa por comas PERO ignora las comas que están dentro de comillas (como en "50,000")
+                const columnas = filas[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                
                 if (columnas.length < 2) continue;
 
-                // Limpieza de datos agresiva (quita comillas, espacios, etc)
-                const idFila = columnas[0].replace(/['"]+/g, '').trim();
+                // Limpieza de datos (quita comillas extras de Excel)
+                const idFila = columnas[0].replace(/^"|"$/g, '').trim(); 
                 
-                // Guardamos log de los primeros 5 para depurar
-                if(i < 5) debugLog += `Fila ${i}: [${idFila}]\n`;
+                if (i < 5) debugLog += `Línea ${i}: [${idFila}]\n`;
 
                 if (idFila.toLowerCase() === idBuscado.toLowerCase()) {
-                    // ¡ENCONTRADO!
-                    const estado = columnas[1].replace(/['"]+/g, '').trim();
-                    const precio = columnas[2].replace(/['"]+/g, '').trim();
-                    mostrarResultado(estado, precio);
+                    // Datos encontrados
+                    const estado = columnas[1].replace(/^"|"$/g, '').trim();
+                    const precio = columnas[2].replace(/^"|"$/g, '').trim();
+                    
+                    mostrarFicha(estado, precio);
                     encontrado = true;
                     break;
                 }
             }
 
             if (!encontrado) {
-                verError(`No encontré el "${idBuscado}".`);
+                verError(`No encontré el lote "${idBuscado}"`);
                 document.getElementById('debug').style.display = 'block';
-                document.getElementById('debug').innerText = debugLog + "\n... Verifica que en el Excel la columna A diga exactamente: " + idBuscado;
+                document.getElementById('debug').innerText = debugLog + "\n... Verifica la Columna A en el Excel.";
             }
         }
 
-        function mostrarResultado(estado, precio) {
-            document.getElementById('msg').style.display = 'none';
+        function mostrarFicha(estado, precio) {
+            document.getElementById('loading').style.display = 'none';
             document.getElementById('dataContainer').style.display = 'block';
             
             const elEstado = document.getElementById('statusDisplay');
@@ -128,13 +133,13 @@
             document.getElementById('priceDisplay').innerText = precio;
 
             elEstado.className = 'status';
+            // Colores automáticos
             if (estado.toLowerCase().includes('vendido')) elEstado.classList.add('vendido');
             else elEstado.classList.add('disponible');
         }
 
-        function verError(txt) {
-            document.getElementById('msg').innerText = txt;
-            document.getElementById('msg').style.color = 'red';
+        function verError(msg) {
+            document.getElementById('loading').innerHTML = `<span style="color:red">❌ ${msg}</span>`;
             document.getElementById('loteTitle').innerText = "Error";
         }
     </script>
