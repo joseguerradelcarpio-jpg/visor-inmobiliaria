@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visor Inmobiliario</title>
+    <title>Ficha Técnica</title>
     <style>
         body { 
             font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; 
@@ -23,96 +23,116 @@
         }
         .disponible { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
         .vendido { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
-        .error-box { background: #333; color: #fff; padding: 15px; font-size: 12px; margin-top: 20px; border-radius: 5px; text-align: left; }
+        
+        /* Ocultamos el debug por defecto, solo sale si hay error grave */
+        .debug-area { background: #222; color: lime; padding: 10px; font-size: 10px; text-align: left; margin-top: 20px; width: 90%; display:none; white-space: pre-wrap; word-break: break-all; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2 id="loteTitle">Buscando...</h2>
+        <h2 id="loteTitle">Consultando...</h2>
         
         <div id="dataContainer" style="display:none;">
             <div id="statusDisplay" class="status">---</div>
             <div class="price" id="priceDisplay">---</div>
         </div>
         
-        <p id="msg" style="color:#666;">Conectando...</p>
+        <p id="msg" style="color:#666;">Conectando al servidor...</p>
     </div>
 
-    <div id="debug" class="error-box" style="display:none;"></div>
+    <div id="debug" class="debug-area"></div>
 
     <script>
-        // TU CONFIGURACIÓN
+        // --- ID DE TU EXCEL ---
         const SHEET_ID = '2PACX-1vT1ZxnIeqCKoH5E0MCWTw4M-q3qUGxWpfrHq66msH6CsHPPSgKl27PP4NlTj7zkvQOhpNwheaJwHfLK';
-        
-        // ACEPTAMOS ?id= O ?lote= PARA EVITAR ERRORES
+
+        // 1. Obtener ID de la URL
         const params = new URLSearchParams(window.location.search);
-        const targetId = params.get('id') || params.get('lote');
+        const targetId = params.get('lote') || params.get('id');
 
         if (!targetId) {
-            showError("⚠️ Error en enlace: Falta poner ?id=Lote_X al final.");
+            verError("Falta el ID en el enlace (?lote=Lote_1)");
         } else {
             document.getElementById('loteTitle').innerText = targetId.replace(/_/g, ' ');
-            fetchData(targetId);
+            descargarDatos(targetId);
         }
 
-        function fetchData(idToFind) {
+        function descargarDatos(idBuscado) {
             const googleUrl = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
-            // TRUCO: Añadimos la hora actual (&t=...) para obligar a traer datos frescos y no viejos
-            const timestamp = new Date().getTime();
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(googleUrl)}&t=${timestamp}`;
+            // Timestamp para evitar caché
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(googleUrl)}&t=${new Date().getTime()}`;
 
             fetch(proxyUrl)
                 .then(r => r.json())
                 .then(data => {
-                    const rows = data.contents.split('\n');
-                    let found = false;
+                    let contenido = data.contents;
 
-                    // DEBUG: Muestra las primeras 3 filas para ver si el Excel está vacío
-                    let debugInfo = "Leído del Excel:\n";
-
-                    for (let i = 0; i < rows.length; i++) {
-                        const cols = rows[i].split(',');
-                        if (cols.length < 2) continue;
-
-                        const currentId = cols[0].replace(/['"]+/g, '').trim();
-                        // Guardamos info para depurar
-                        if (i < 5) debugInfo += `Fila ${i}: [${currentId}]\n`;
-
-                        // COMPARACIÓN (Ignoramos mayúsculas/minúsculas para asegurar éxito)
-                        if (currentId.toLowerCase() === idToFind.toLowerCase()) {
-                            renderData(cols[1], cols[2]);
-                            found = true;
-                            break;
+                    // --- DECODIFICADOR DE EMERGENCIA ---
+                    // Si el contenido viene encriptado en base64 (tu error anterior), lo abrimos aquí
+                    if (contenido.includes("base64,")) {
+                        try {
+                            const base64Part = contenido.split("base64,")[1];
+                            // Decodificar y procesar caracteres especiales (tildes, ñ, simbolos de moneda)
+                            contenido = decodeURIComponent(escape(window.atob(base64Part)));
+                            console.log("⚠️ Contenido base64 detectado y decodificado.");
+                        } catch (e) {
+                            console.log("Error al decodificar base64: " + e);
                         }
                     }
+                    // -----------------------------------
 
-                    if (!found) {
-                        showError(`❌ No encontré el "${idToFind}" en el Excel.`);
-                        document.getElementById('debug').style.display = 'block';
-                        document.getElementById('debug').innerText = debugInfo + "\n...Revisa que la Columna A tenga exactamente ese ID.";
-                    }
+                    procesarCSV(contenido, idBuscado);
                 })
-                .catch(err => showError("❌ Error de conexión con Google."));
+                .catch(err => verError("Error de Red: " + err));
         }
 
-        function renderData(statusRaw, priceRaw) {
-            const status = statusRaw.replace(/['"]+/g, '').trim();
-            const price = priceRaw.replace(/['"]+/g, '').trim();
+        function procesarCSV(textoCSV, idBuscado) {
+            const filas = textoCSV.split('\n');
+            let encontrado = false;
+            let debugLog = "Analizando:\n";
 
+            for (let i = 0; i < filas.length; i++) {
+                const columnas = filas[i].split(',');
+                if (columnas.length < 2) continue;
+
+                // Limpieza de datos agresiva (quita comillas, espacios, etc)
+                const idFila = columnas[0].replace(/['"]+/g, '').trim();
+                
+                // Guardamos log de los primeros 5 para depurar
+                if(i < 5) debugLog += `Fila ${i}: [${idFila}]\n`;
+
+                if (idFila.toLowerCase() === idBuscado.toLowerCase()) {
+                    // ¡ENCONTRADO!
+                    const estado = columnas[1].replace(/['"]+/g, '').trim();
+                    const precio = columnas[2].replace(/['"]+/g, '').trim();
+                    mostrarResultado(estado, precio);
+                    encontrado = true;
+                    break;
+                }
+            }
+
+            if (!encontrado) {
+                verError(`No encontré el "${idBuscado}".`);
+                document.getElementById('debug').style.display = 'block';
+                document.getElementById('debug').innerText = debugLog + "\n... Verifica que en el Excel la columna A diga exactamente: " + idBuscado;
+            }
+        }
+
+        function mostrarResultado(estado, precio) {
             document.getElementById('msg').style.display = 'none';
             document.getElementById('dataContainer').style.display = 'block';
             
-            const statusEl = document.getElementById('statusDisplay');
-            statusEl.innerText = status;
-            document.getElementById('priceDisplay').innerText = price;
+            const elEstado = document.getElementById('statusDisplay');
+            elEstado.innerText = estado;
+            document.getElementById('priceDisplay').innerText = precio;
 
-            statusEl.className = 'status'; 
-            if (status.toLowerCase().includes('vendido')) statusEl.classList.add('vendido');
-            else statusEl.classList.add('disponible');
+            elEstado.className = 'status';
+            if (estado.toLowerCase().includes('vendido')) elEstado.classList.add('vendido');
+            else elEstado.classList.add('disponible');
         }
 
-        function showError(txt) {
+        function verError(txt) {
             document.getElementById('msg').innerText = txt;
             document.getElementById('msg').style.color = 'red';
             document.getElementById('loteTitle').innerText = "Error";
