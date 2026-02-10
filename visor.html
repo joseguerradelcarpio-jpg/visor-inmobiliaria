@@ -8,24 +8,24 @@
         body { 
             font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; 
             display: flex; flex-direction: column; justify-content: center; align-items: center; 
-            height: 100vh; background-color: #f8f9fa; overflow: hidden;
+            height: 100vh; background-color: #f8f9fa;
         }
         .card {
             background: white; width: 90%; max-width: 380px;
             padding: 30px 20px; border-radius: 15px; text-align: center;
             box-shadow: 0 5px 20px rgba(0,0,0,0.1);
         }
-        h2 { margin: 0 0 5px 0; color: #333; font-size: 24px; text-transform: uppercase; }
-        .price { font-size: 42px; color: #2c3e50; font-weight: 800; margin: 15px 0; letter-spacing: -1px; }
+        h2 { margin: 0 0 10px 0; color: #333; font-size: 24px; text-transform: uppercase; }
+        .price { font-size: 38px; color: #2c3e50; font-weight: 800; margin: 15px 0; }
         .status { 
             padding: 6px 15px; border-radius: 4px; font-weight: bold; 
-            text-transform: uppercase; display: inline-block; font-size: 13px; letter-spacing: 1px;
+            text-transform: uppercase; display: inline-block; font-size: 13px;
         }
-        .disponible { background: #e8f5e9; color: #1b5e20; }
-        .vendido { background: #ffebee; color: #b71c1c; }
+        .disponible { background: #e8f5e9; color: #1b5e20; border: 1px solid #c8e6c9; }
+        .vendido { background: #ffebee; color: #b71c1c; border: 1px solid #ffcdd2; }
         
-        #loading { font-size: 14px; color: #888; margin-top: 10px; }
-        .error-msg { color: red; font-size: 12px; margin-top: 10px; display: none; }
+        #loading { font-size: 14px; color: #666; font-style: italic; margin-top: 10px; }
+        .error-msg { color: red; background:#ffebeb; padding:10px; border-radius:5px; font-size: 12px; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
@@ -36,86 +36,101 @@
         <div id="dataContainer" style="display:none;">
             <div id="statusDisplay" class="status">---</div>
             <div class="price" id="priceDisplay">---</div>
-            <div style="font-size: 11px; color: #aaa; margin-top: 15px;">Precios sujetos a cambio</div>
+            <div style="font-size: 10px; color: #aaa; margin-top: 15px;">Información actualizada</div>
         </div>
         
-        <div id="loading">Cargando...</div>
+        <div id="loading">Consultando datos...</div>
         <div id="errorBox" class="error-msg"></div>
     </div>
 
     <script>
+        // === CONFIGURACIÓN ===
         const SHEET_ID = '2PACX-1vT1ZxnIeqCKoH5E0MCWTw4M-q3qUGxWpfrHq66msH6CsHPPSgKl27PP4NlTj7zkvQOhpNwheaJwHfLK';
         
-        // === SISTEMA DE CACHÉ (VELOCIDAD) ===
-        // Guardamos los datos 60 segundos para no descargarlos en cada clic
-        const CACHE_KEY = 'inmo_data';
-        const CACHE_TIME_KEY = 'inmo_time';
-        const CACHE_DURATION = 60 * 1000; // 60 segundos
+        // === SISTEMA DE MEMORIA (CACHÉ) ===
+        const CACHE_KEY = 'datos_lotes_v8';
+        const CACHE_TIEMPO = 'tiempo_lotes_v8';
+        const DURACION_MINUTOS = 5; // Guardar datos por 5 minutos
 
+        // Iniciar
         const params = new URLSearchParams(window.location.search);
         const targetId = params.get('lote') || params.get('id');
 
         if (!targetId) {
-            verError("Falta ID en enlace");
+            verError("Error: Falta ID en el enlace (?lote=Lote_1)");
         } else {
             document.getElementById('loteTitle').innerText = targetId.replace(/_/g, ' ');
-            obtenerDatos(targetId);
+            cargarDatos(targetId);
         }
 
-        async function obtenerDatos(id) {
-            let csvText = null;
+        async function cargarDatos(idBuscado) {
+            // 1. INTENTAR LEER DE LA MEMORIA DEL NAVEGADOR
+            const datosGuardados = localStorage.getItem(CACHE_KEY);
+            const tiempoGuardado = localStorage.getItem(CACHE_TIEMPO);
+            const ahora = new Date().getTime();
 
-            // 1. Revisar si tenemos datos guardados (Rápido)
-            const cachedData = localStorage.getItem(CACHE_KEY);
-            const cachedTime = localStorage.getItem(CACHE_TIME_KEY);
-            const now = new Date().getTime();
-
-            if (cachedData && cachedTime && (now - cachedTime < CACHE_DURATION)) {
-                console.log("⚡ Usando datos de memoria (Rápido)");
-                csvText = cachedData;
-            } else {
-                console.log("🐌 Descargando de Internet...");
-                try {
-                    // Usamos un proxy más rápido (corsproxy.io)
-                    const googleUrl = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
-                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(googleUrl)}`;
-                    
-                    const response = await fetch(proxyUrl);
-                    if (!response.ok) throw new Error("Error Proxy");
-                    csvText = await response.text();
-                    
-                    // Guardamos en memoria para el siguiente clic
-                    localStorage.setItem(CACHE_KEY, csvText);
-                    localStorage.setItem(CACHE_TIME_KEY, now);
-                } catch (e) {
-                    verError("Error de conexión. Intente de nuevo.");
-                    return;
-                }
+            // Si hay datos y son recientes (menos de 5 min), los usamos
+            if (datosGuardados && tiempoGuardado && (ahora - tiempoGuardado < DURACION_MINUTOS * 60 * 1000)) {
+                console.log("⚡ Usando memoria rápida");
+                procesarCSV(datosGuardados, idBuscado);
+                return;
             }
 
-            procesar(csvText, id);
+            // 2. SI NO, DESCARGAR DE INTERNET (Usando el conector que sí te funcionó: AllOrigins)
+            console.log("🌐 Descargando de Internet...");
+            const googleUrl = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(googleUrl)}&t=${ahora}`;
+
+            try {
+                const respuesta = await fetch(proxyUrl);
+                const data = await respuesta.json();
+                let contenido = data.contents;
+
+                // Decodificar si viene encriptado (base64)
+                if (contenido.includes("base64,")) {
+                    contenido = decodeURIComponent(escape(window.atob(contenido.split("base64,")[1])));
+                }
+
+                // GUARDAR EN MEMORIA PARA LA PRÓXIMA VEZ
+                localStorage.setItem(CACHE_KEY, contenido);
+                localStorage.setItem(CACHE_TIEMPO, ahora);
+
+                procesarCSV(contenido, idBuscado);
+
+            } catch (error) {
+                verError("No se pudo conectar. Revisa tu internet.");
+            }
         }
 
-        function procesar(texto, idBuscado) {
+        function procesarCSV(texto, idBuscado) {
             const filas = texto.split('\n');
             let encontrado = false;
 
             for (let i = 0; i < filas.length; i++) {
-                // Regex para respetar las comas del dinero "50,000"
-                const cols = filas[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-                if (cols.length < 2) continue;
+                const columnas = filas[i].split(',');
+                if (columnas.length < 2) continue;
 
-                const idFila = cols[0].replace(/^"|"$/g, '').trim();
+                // Limpiar ID (quitar comillas)
+                const idFila = columnas[0].replace(/['"]+/g, '').trim();
 
                 if (idFila.toLowerCase() === idBuscado.toLowerCase()) {
-                    const estado = cols[1].replace(/^"|"$/g, '').trim();
-                    const precio = cols[2].replace(/^"|"$/g, '').trim();
+                    // DATOS ENCONTRADOS
+                    const estado = columnas[1].replace(/['"]+/g, '').trim();
+                    
+                    // --- ARREGLO DEL PRECIO CORTADO (TRUCO SIMPLE) ---
+                    // Si el precio se partió por la coma (ej: "50", "000"), unimos todo lo que sobre
+                    let precio = columnas.slice(2).join(','); 
+                    precio = precio.replace(/['"]+/g, '').trim(); // Limpiar comillas del precio final
+
                     mostrar(estado, precio);
                     encontrado = true;
                     break;
                 }
             }
-            if (!encontrado) verError("Lote no disponible");
+
+            if (!encontrado) {
+                verError(`El lote "${idBuscado}" no está en el Excel.`);
+            }
         }
 
         function mostrar(estado, precio) {
