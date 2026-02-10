@@ -8,119 +8,118 @@
         body { 
             font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; 
             display: flex; flex-direction: column; justify-content: center; align-items: center; 
-            height: 100vh; background-color: #f4f4f4;
+            height: 100vh; background-color: #f8f9fa; overflow: hidden;
         }
         .card {
-            background: white; width: 90%; max-width: 350px;
-            padding: 30px; border-radius: 15px; text-align: center;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            background: white; width: 90%; max-width: 380px;
+            padding: 30px 20px; border-radius: 15px; text-align: center;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
         }
-        h2 { margin: 0 0 15px 0; color: #333; font-size: 24px; text-transform: uppercase; }
-        .price { font-size: 32px; color: #2c3e50; font-weight: 800; margin: 15px 0; }
+        h2 { margin: 0 0 5px 0; color: #333; font-size: 24px; text-transform: uppercase; }
+        .price { font-size: 42px; color: #2c3e50; font-weight: 800; margin: 15px 0; letter-spacing: -1px; }
         .status { 
-            padding: 8px 15px; border-radius: 20px; font-weight: bold; 
-            text-transform: uppercase; display: inline-block; font-size: 14px;
+            padding: 6px 15px; border-radius: 4px; font-weight: bold; 
+            text-transform: uppercase; display: inline-block; font-size: 13px; letter-spacing: 1px;
         }
-        .disponible { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-        .vendido { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+        .disponible { background: #e8f5e9; color: #1b5e20; }
+        .vendido { background: #ffebee; color: #b71c1c; }
         
-        /* Ocultamos el debug por defecto, solo sale si hay error grave */
-        .debug-area { background: #222; color: lime; padding: 10px; font-size: 10px; text-align: left; margin-top: 20px; width: 90%; display:none; white-space: pre-wrap; word-break: break-all; }
+        #loading { font-size: 14px; color: #888; margin-top: 10px; }
+        .error-msg { color: red; font-size: 12px; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2 id="loteTitle">Consultando...</h2>
+        <h2 id="loteTitle">...</h2>
         
         <div id="dataContainer" style="display:none;">
             <div id="statusDisplay" class="status">---</div>
             <div class="price" id="priceDisplay">---</div>
+            <div style="font-size: 11px; color: #aaa; margin-top: 15px;">Precios sujetos a cambio</div>
         </div>
         
-        <p id="msg" style="color:#666;">Conectando al servidor...</p>
+        <div id="loading">Cargando...</div>
+        <div id="errorBox" class="error-msg"></div>
     </div>
 
-    <div id="debug" class="debug-area"></div>
-
     <script>
-        // --- ID DE TU EXCEL ---
         const SHEET_ID = '2PACX-1vT1ZxnIeqCKoH5E0MCWTw4M-q3qUGxWpfrHq66msH6CsHPPSgKl27PP4NlTj7zkvQOhpNwheaJwHfLK';
+        
+        // === SISTEMA DE CACHÉ (VELOCIDAD) ===
+        // Guardamos los datos 60 segundos para no descargarlos en cada clic
+        const CACHE_KEY = 'inmo_data';
+        const CACHE_TIME_KEY = 'inmo_time';
+        const CACHE_DURATION = 60 * 1000; // 60 segundos
 
-        // 1. Obtener ID de la URL
         const params = new URLSearchParams(window.location.search);
         const targetId = params.get('lote') || params.get('id');
 
         if (!targetId) {
-            verError("Falta el ID en el enlace (?lote=Lote_1)");
+            verError("Falta ID en enlace");
         } else {
             document.getElementById('loteTitle').innerText = targetId.replace(/_/g, ' ');
-            descargarDatos(targetId);
+            obtenerDatos(targetId);
         }
 
-        function descargarDatos(idBuscado) {
-            const googleUrl = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
-            // Timestamp para evitar caché
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(googleUrl)}&t=${new Date().getTime()}`;
+        async function obtenerDatos(id) {
+            let csvText = null;
 
-            fetch(proxyUrl)
-                .then(r => r.json())
-                .then(data => {
-                    let contenido = data.contents;
+            // 1. Revisar si tenemos datos guardados (Rápido)
+            const cachedData = localStorage.getItem(CACHE_KEY);
+            const cachedTime = localStorage.getItem(CACHE_TIME_KEY);
+            const now = new Date().getTime();
 
-                    // --- DECODIFICADOR DE EMERGENCIA ---
-                    // Si el contenido viene encriptado en base64 (tu error anterior), lo abrimos aquí
-                    if (contenido.includes("base64,")) {
-                        try {
-                            const base64Part = contenido.split("base64,")[1];
-                            // Decodificar y procesar caracteres especiales (tildes, ñ, simbolos de moneda)
-                            contenido = decodeURIComponent(escape(window.atob(base64Part)));
-                            console.log("⚠️ Contenido base64 detectado y decodificado.");
-                        } catch (e) {
-                            console.log("Error al decodificar base64: " + e);
-                        }
-                    }
-                    // -----------------------------------
+            if (cachedData && cachedTime && (now - cachedTime < CACHE_DURATION)) {
+                console.log("⚡ Usando datos de memoria (Rápido)");
+                csvText = cachedData;
+            } else {
+                console.log("🐌 Descargando de Internet...");
+                try {
+                    // Usamos un proxy más rápido (corsproxy.io)
+                    const googleUrl = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
+                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(googleUrl)}`;
+                    
+                    const response = await fetch(proxyUrl);
+                    if (!response.ok) throw new Error("Error Proxy");
+                    csvText = await response.text();
+                    
+                    // Guardamos en memoria para el siguiente clic
+                    localStorage.setItem(CACHE_KEY, csvText);
+                    localStorage.setItem(CACHE_TIME_KEY, now);
+                } catch (e) {
+                    verError("Error de conexión. Intente de nuevo.");
+                    return;
+                }
+            }
 
-                    procesarCSV(contenido, idBuscado);
-                })
-                .catch(err => verError("Error de Red: " + err));
+            procesar(csvText, id);
         }
 
-        function procesarCSV(textoCSV, idBuscado) {
-            const filas = textoCSV.split('\n');
+        function procesar(texto, idBuscado) {
+            const filas = texto.split('\n');
             let encontrado = false;
-            let debugLog = "Analizando:\n";
 
             for (let i = 0; i < filas.length; i++) {
-                const columnas = filas[i].split(',');
-                if (columnas.length < 2) continue;
+                // Regex para respetar las comas del dinero "50,000"
+                const cols = filas[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                if (cols.length < 2) continue;
 
-                // Limpieza de datos agresiva (quita comillas, espacios, etc)
-                const idFila = columnas[0].replace(/['"]+/g, '').trim();
-                
-                // Guardamos log de los primeros 5 para depurar
-                if(i < 5) debugLog += `Fila ${i}: [${idFila}]\n`;
+                const idFila = cols[0].replace(/^"|"$/g, '').trim();
 
                 if (idFila.toLowerCase() === idBuscado.toLowerCase()) {
-                    // ¡ENCONTRADO!
-                    const estado = columnas[1].replace(/['"]+/g, '').trim();
-                    const precio = columnas[2].replace(/['"]+/g, '').trim();
-                    mostrarResultado(estado, precio);
+                    const estado = cols[1].replace(/^"|"$/g, '').trim();
+                    const precio = cols[2].replace(/^"|"$/g, '').trim();
+                    mostrar(estado, precio);
                     encontrado = true;
                     break;
                 }
             }
-
-            if (!encontrado) {
-                verError(`No encontré el "${idBuscado}".`);
-                document.getElementById('debug').style.display = 'block';
-                document.getElementById('debug').innerText = debugLog + "\n... Verifica que en el Excel la columna A diga exactamente: " + idBuscado;
-            }
+            if (!encontrado) verError("Lote no disponible");
         }
 
-        function mostrarResultado(estado, precio) {
-            document.getElementById('msg').style.display = 'none';
+        function mostrar(estado, precio) {
+            document.getElementById('loading').style.display = 'none';
             document.getElementById('dataContainer').style.display = 'block';
             
             const elEstado = document.getElementById('statusDisplay');
@@ -133,9 +132,10 @@
         }
 
         function verError(txt) {
-            document.getElementById('msg').innerText = txt;
-            document.getElementById('msg').style.color = 'red';
-            document.getElementById('loteTitle').innerText = "Error";
+            document.getElementById('loading').style.display = 'none';
+            const box = document.getElementById('errorBox');
+            box.style.display = 'block';
+            box.innerText = txt;
         }
     </script>
 </body>
